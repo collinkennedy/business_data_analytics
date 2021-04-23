@@ -1,0 +1,191 @@
+---
+title: "hw2"
+author: "Collin"
+date: "4/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(kableExtra)
+```
+
+1a) 
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(ISLR)
+options(digits = 3)
+data = na.omit(Auto)
+pairs(data[,1:7])
+
+?R2
+
+```
+Mpg appears to be negatively correlated with power-related variables, and also has a positive association with year (indicating fuel efficiency has improved over time) 
+
+1b) 
+```{r}
+cor(data[,1:7])
+```
+Mpg is negatively correlated with `weight`, `cylinders`, and `displacement`, and it is positively correlated with `acceleration` and `year`.  
+
+1c) 
+```{r}
+model = lm(mpg~cylinders+displacement+horsepower+weight+acceleration+year, data = data)
+summary(model)
+```
+Given an a p-value <2e-16, this regression is overall highly significant. In other words, there definitely does appear to be a relationship between the predictor variables and the response.
+
+
+
+1d) 
+```{r}
+par(mfrow=c(2,2))
+plot(model)
+```
+Observation 14 appears to have significantly greater leverage than the rest of the observations. Based on the `Residuals vs Fitted Values` plot, it also appears that there is nonconstant variance.
+1e) 
+```{r}
+model_int = lm(mpg~cylinders*year, data = data)
+summary(model_int)
+
+```
+The interaction between `cylinders` and `year` is statistically significant. This suggests that the effect of `cylinders` on `mpg` may also depend on the `year`. It is also worth pointing out that the effect of the interaction term is negative, and the `cylinders` term is now positive. Perhaps the `cylinders` coefficient in the previous model was picking up some serious bias, and in actuality `cylinders` have become more fuel efficient.
+
+
+
+
+1f) 
+```{r}
+model_nonlinear = lm(mpg~log(cylinders) + I(weight^2) + I(sqrt(displacement)), data = data)
+summary(model_nonlinear)
+```
+Here I take a look at the log, square root and squared transformations of the predictors. `weight` squared and the square root of `displacement` are highly significant, but the log of `cylinders` is not.
+
+2a) 
+
+```{r}
+library(ISLR)
+library(glmnet)
+summary(Weekly)
+pairs(Weekly)
+```
+Most of the relationships appear very noisy and uninteresting, but there does appear to be some positive relationship between `year` and `volume`. 
+
+2b) 
+```{r}
+logistic_model = glm(Direction~., data = Weekly[,c(2:7,9)], family = "binomial")
+summary(logistic_model)
+```
+Lag 2 appears to be the only statistically significant predictor of `Direction`.
+
+2c) 
+```{r}
+log_predict = predict(logistic_model, Weekly, type = "response")
+logistic_model_classification = ifelse(log_predict > .5, "Up", "Down")
+prediction_table = table(logistic_model_classification, Weekly$Direction)
+
+# counter = 0
+# for(direction in Weekly$Direction){
+#   if(direction == "Down")
+#     counter = counter + 1
+# }
+prediction_table
+
+#accuracy
+sum(diag(prediction_table))/sum(prediction_table)
+
+```
+The prediction accuracy is about 56\% overall, and it shows when the logistic regression is right and wrong. For down predictions, it is correct 54/102 \approx 52.9\% accurate, and 557/987 \approx 56.4\% accurate. Overall, this is not a very accurate model, as it hardly beats a prediction under pure chance (50/50).
+
+2d) 
+```{r}
+set.seed(1)
+train = Weekly %>% filter(Year >= 1990 & Year <= 2008) #training data
+test = Weekly %>% filter(Year > 2008) #test data
+logistic_model2 = glm(Direction~Lag2, data = train, family = "binomial")
+summary(logistic_model2)
+log2_pred = predict(logistic_model2, test, type = "response")
+log2.pred = ifelse(log2_pred > .5, "Up", "Down")
+prediction_table2 = table(log2.pred, test$Direction)
+prediction_table2
+sum(diag(prediction_table2))/sum(prediction_table2)
+```
+
+We now have an accuracy rate of about 62.5\%. The model got 9/14 `Down` predictions and 59/90 `Up` predictions correct, respectively.
+
+2e) 
+```{r}
+library(MASS)
+lda_model = lda(Direction~Lag2, data = train)
+lda_pred = predict(lda_model, test)$class
+table(lda_pred, test$Direction)
+sum(diag(table(lda_pred, test$Direction)))/sum(table(lda_pred, test$Direction))
+
+```
+
+Interestingly enough, this results in the same accuracy as the previous logistic regression model with one predictor (`Lag2`).
+
+2f) 
+```{r}
+qda_model = qda(Direction~Lag2, data = train)
+qda_pred = predict(qda_model, test)$class
+table(qda_pred, test$Direction)
+sum(diag(table(qda_pred, test$Direction)))/sum(table(qda_pred, test$Direction))
+```
+This quadratic linear discriminant model results in a lower prediction accuracy (58.7\%) compared to the second logistic regression model and LDA model.
+
+2g)
+```{r}
+library(class)
+train_knn = as.matrix(train$Lag2)
+test_knn = as.matrix(test$Lag2)
+knn_pred = knn(train_knn, test_knn, train$Direction, k=1)
+table(knn_pred, test$Direction)
+sum(diag(table(knn_pred, test$Direction)))/sum(table(knn_pred, test$Direction))
+```
+
+2h) 
+The logistic regression and LDA models appear to have produced the best results, with QDA following suit. This K-nearest neighbors model, with k = 1, appears to be basically worthless, with an accuracy rate of .51.
+
+2i) 
+```{r}
+#k = 2
+knn_pred2 = knn(train_knn, test_knn, train$Direction, k=2)
+table(knn_pred2, test$Direction)
+knn_pred2_accuracy = sum(diag(table(knn_pred2, test$Direction)))/sum(table(knn_pred2, test$Direction))
+
+
+knn_pred5 = knn(train_knn, test_knn, train$Direction, k=5)
+table(knn_pred5, test$Direction)
+knn_pred5_accuracy = sum(diag(table(knn_pred5, test$Direction)))/sum(table(knn_pred5, test$Direction))
+
+
+knn_pred10 = knn(train_knn, test_knn, train$Direction, k=10)
+table(knn_pred10, test$Direction)
+knn_pred10_accuracy = sum(diag(table(knn_pred10, test$Direction)))/sum(table(knn_pred10, test$Direction))
+
+
+
+logistic_model3 = glm(Direction~I(Lag1^2)+I(Lag2^2), data = train, family = "binomial")
+summary(logistic_model3)
+log3_pred = predict(logistic_model3, test, type = "response")
+log3.pred = ifelse(log3_pred > .5, "Up", "Down")
+prediction_table3 = table(log3.pred, test$Direction)
+prediction_table3
+sum(diag(prediction_table3))/sum(prediction_table3)
+
+#dataframe with results
+
+results = tibble(pred2 = knn_pred2_accuracy, pred5 = knn_pred5_accuracy, pred10 = knn_pred10_accuracy)
+results = results %>% rename("k_equals_2" = "pred2") %>% rename("k_equals_5" = "pred5") %>% rename("k_equals_10" = "pred10") 
+results %>% 
+  kbl() %>% 
+  kable_styling()
+```
+Funny enough, with this third logistic regression model (with squared transformed variables `Lag1` and `Lag2`), the accuracy his *horrible*: about .41.
+
+Looking at the various KNN models, it appears that the model with $K = 10$ is the most accurate, with an accuracy rate of about 56\%.
+Granted, its accuracy rate is marginally better than the models where $K = 2$ (52\%) and $K = 10$ (53\%) 
+

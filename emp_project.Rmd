@@ -1,0 +1,280 @@
+---
+title: "empirical_project"
+author: "Collin"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(AER)
+library(caret)
+library(gamlr)
+data("CASchools")
+CASchools
+
+cor(CASchools$expenditure, CASchools$read)
+cor(CASchools$income, CASchools$read)
+cor(CASchools$math,CASchools$read)
+
+ca_schools = CASchools %>% 
+  mutate(student_teacher_ratio = students/teachers) %>% 
+  mutate(score = (math + read)/2) %>% 
+  mutate(decile = ntile(score, 10)) %>% 
+  mutate(percentile = case_when(
+    decile == 1 ~ "10th",
+    decile == 2 ~ "20th",
+    decile == 3 ~ "30th",
+    decile == 4 ~ "40th",
+    decile == 5 ~ "50th",
+    decile == 6 ~ "60th",
+    decile == 7 ~ "70th",
+    decile == 8 ~ "80th",
+    decile == 9 ~ "90th",
+    decile == 10 ~ "Top 10%",
+  ))
+
+#10- top 10%
+#9 top 20
+#8 top 30
+#7 top 40
+#6 top 50
+#5
+#4
+#3
+#2
+#1
+
+ca_schools
+#performance by county
+data = ca_schools %>% 
+  group_by(county) %>% 
+  summarize(avg_math = mean(math), avg_read = mean(read), avg_expenditure = mean(expenditure),avg_income = mean(income), avg_student_teacher_ratio = mean(student_teacher_ratio),
+            avg_score = mean(score)) %>% 
+  arrange(desc(avg_math))
+data
+
+#visualize performance (counties labelled)
+ggplot(data = data, mapping = aes(x = avg_math, y = avg_read))+
+  geom_point(mapping = aes(x = avg_math, y = avg_read))+
+  geom_text(aes(label = county), size = 3)+
+  ggtitle("Average Math Score vs Average Reading Score")+
+  ylab("Average Reading Score")+ xlab("Average Math Score")+theme_minimal()
+
+
+#student teacher ratio vs aggregate score
+ggplot(data = data, mapping = aes(x = avg_student_teacher_ratio, y = avg_score))+
+  geom_point(mapping = aes(x = avg_student_teacher_ratio, y = avg_score))+
+  geom_text(aes(label = county), size = 3)+
+  geom_smooth(method = "lm")+
+  ggtitle("student teacher ratio  vs. total score")+
+  ylab("score")+ xlab("student teacher ratio")+theme_minimal()
+
+# ggplot(data = data, mapping = aes(x = income, y = avg_math))+
+  # geom_point(mapping = aes(x = income, y = avg_math))+
+  # geom_smooth(method = "lm")+
+  # ggtitle("Average Math Score vs income")+
+  # ylab("math score")+ xlab("income")+theme_minimal()
+
+cor(ca_schools$calworks, ca_schools$lunch)
+
+
+
+#verify this shit is right
+ca_schools %>% group_by(decile) %>% 
+  summarize(score = score) %>% 
+  ggplot(mapping = aes(x = decile, y = score))+
+  geom_boxplot(mapping = aes(group = decile))+
+  scale_x_discrete(limits = seq(1,10,1)) + theme_minimal()
+
+
+```
+
+
+
+```{r}
+#how many schools are in each county:
+
+ca_schools %>% 
+  group_by(county) %>% 
+  summarize(number_of_schools = n())
+
+?ntile
+
+```
+
+
+```{r}
+#OLS
+#train and test data
+#If you do not have an ID per row, use the following code to create an ID
+ca_schools <- ca_schools %>% mutate(id = row_number())
+#Check IDs
+ca_schools %>% head(10)
+#Create training set
+train_ols <- ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math))
+#Create test set
+test_ols  <- anti_join(ca_schools, train_ols, by = 'id') #think of it as left - right. keeps all of those entries
+ca_schools
+test_ols
+
+#train model 
+ols_model = train(score ~ ., data = train_ols, method = "lm", trControl = trainControl(method = "cv", number = 10) )
+
+
+# fkja = lm(score ~ . - district - grades - county - school, data= train_ols)
+# summary(fkja)
+
+ols_predictions = predict(ols_model,newdata = test_ols)
+
+#calculate out of sample Rsquared
+postResample(test_ols$score,ols_predictions )
+
+```
+```{r}
+#LASSO
+
+#create train and test data
+train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math)) 
+train_lasso_matrix = model.matrix(score ~ ., data = train_lasso)
+
+test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math)) %>%  setdiff(train_lasso)
+
+
+
+#Split AFTER PCA, not before
+
+#Do PCA on entire data
+pca_ca_schools = prcomp(ca_schools %>% select(-c(district,school,grades,county,read,math)),scale = TRUE)
+pca_ca_schools$x
+pca_df = as_tibble(pca_ca_schools$x) #create a dataframe of it 
+
+
+pca_train = prcomp(train_lasso, scale = TRUE)
+pca_train_df = as_tibble(pca_train$x)
+
+#split pca data into train and test subsets
+train_pcr = as_tibble(pca_ca_schools$x) %>% sample_frac(.7)
+test_pcr = as_tibble(pca_ca_schools$x) %>% setdiff(train_pcr)
+
+
+
+#apply PCA 
+cvlassoPCR_predictions = predict(cvlassoPCR, newdata = test_pcr)
+postResample(test_pcr,cvlassoPCR_predictions)
+
+
+
+
+length(train_lasso$score)
+length(ca_schools$score)
+length(pca_df$PC1)
+
+
+
+
+#BACK TO MY ORGINAL WAY, build model using principal components
+PCR = cv.gamlr(x = pca_train_df, y = train_lasso$score, nfold = 10)
+summary(PCR)
+
+
+new_df = test_pcr
+length(test_)
+length(test_pcr$PC1)
+#make predictions using PCR model
+predictions = predict(PCR, newdata = test_pcr  )
+
+
+test_pcr
+
+#using caret
+lasso_model <- train(score ~ ., data = train_lasso,
+                     method = 'glmnet',
+                     trControl = trainControl(method = 'cv', number = 10),
+                     tuneGrid = expand.grid(alpha = 1,
+                                          lambda = seq(0.001, 0.2, by = 0.005))) #lasso model cuz alpha = 1
+standard_lasso_predictions = predict(lasso_model, newdata = test_lasso)
+postResample(test_lasso$score, standard_lasso_predictions)
+```
+
+
+```{r}
+#LETS TRY PCR again
+
+#create train and test data
+train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math)) 
+train_lasso_matrix = model.matrix(score ~ ., data = train_lasso)
+
+test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math)) %>%  setdiff(train_lasso)
+
+
+
+
+
+```
+
+
+
+#KNN
+```{r}
+library(class)
+subsetted_ca_schools = ca_schools %>% select(-c(district,school,grades,county,read,math,score)) %>% 
+  mutate(id = row_number())
+#training data and training labels
+train_knn = subsetted_ca_schools %>% sample_frac(.70)
+train_knn_labels = train_knn %>% pull(percentile) %>% as.factor()
+
+
+subsetted_ca_schools
+#testing data and testing labels
+test_knn = subsetted_ca_schools %>% anti_join(train_knn,by = "id")
+test_knn_labels = test_knn %>% pull(percentile) %>% as.factor()
+
+
+#drop the true labels and assign to own objects
+train_knn = train_knn %>% select(-percentile)
+test_knn = test_knn %>% select(-percentile)
+
+
+knn_pred = knn(train = train_knn, test = test_knn,  cl = train_knn_labels, k=5)
+table(knn_pred, test_knn_labels)
+
+
+sum(diag(table(knn_pred, test_knn_labels)))/sum(table(knn_pred, test_knn_labels))
+
+```
+```{r}
+#trying just two predictors
+
+subsetted_ca_schools = ca_schools %>% select(-c(district,school,grades,county,read,math,score)) %>% 
+  mutate(id = row_number())
+#training data and training labels
+train_knn = subsetted_ca_schools %>% sample_frac(.70)
+train_knn_labels = train_knn %>% pull(percentile) %>% as.factor()
+
+
+subsetted_ca_schools
+#testing data and testing labels
+test_knn = subsetted_ca_schools %>% anti_join(train_knn,by = "id")
+test_knn_labels = test_knn %>% pull(percentile) %>% as.factor()
+
+
+#drop the true labels and assign to own objects
+train_knn = train_knn %>% select(-percentile)
+test_knn = test_knn %>% select(-percentile)
+
+
+knn_pred = knn(train = train_knn, test = test_knn,  cl = train_knn_labels, k=5)
+knn_pred
+table(knn_pred, test_knn_labels)
+?table
+
+sum(diag(table(knn_pred, test_knn_labels)))/sum(table(knn_pred, test_knn_labels))
+
+
+
+```
+
+
+

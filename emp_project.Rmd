@@ -11,8 +11,14 @@ library(tidyverse)
 library(AER)
 library(caret)
 library(gamlr)
+library(pls)
 data("CASchools")
-CASchools
+
+
+
+library(tree)
+library(randomForest)
+library(ranger)
 
 cor(CASchools$expenditure, CASchools$read)
 cor(CASchools$income, CASchools$read)
@@ -34,6 +40,7 @@ ca_schools = CASchools %>%
     decile == 9 ~ "90th",
     decile == 10 ~ "Top 10%",
   ))
+ca_schools <- ca_schools %>% mutate(id = row_number())
 
 #10- top 10%
 #9 top 20
@@ -54,6 +61,21 @@ data = ca_schools %>%
             avg_score = mean(score)) %>% 
   arrange(desc(avg_math))
 data
+
+
+data_for_plot = ca_schools %>% 
+  group_by(county) %>% 
+  summarize(avg_score = mean(score), avg_expenditure = mean(expenditure), avg_income = mean(income))
+
+
+ggplot(data = data_for_plot, mapping = aes(x = avg_income, y = avg_expenditure))+
+  geom_text(aes(label = county), size = 3)+
+  geom_smooth(method = "lm")+
+  ggtitle("Average Expenditure vs Average Score by County")+
+  ylab("Average Score")+ xlab("Average Expenditure")+theme_minimal()
+  
+
+
 
 #visualize performance (counties labelled)
 ggplot(data = data, mapping = aes(x = avg_math, y = avg_read))+
@@ -89,6 +111,7 @@ ca_schools %>% group_by(decile) %>%
   scale_x_discrete(limits = seq(1,10,1)) + theme_minimal()
 
 
+
 ```
 
 
@@ -109,18 +132,21 @@ ca_schools %>%
 #OLS
 #train and test data
 #If you do not have an ID per row, use the following code to create an ID
-ca_schools <- ca_schools %>% mutate(id = row_number())
+
 #Check IDs
 ca_schools %>% head(10)
 #Create training set
-train_ols <- ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math))
+train_ols <- ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math,decile,percentile))
+
 #Create test set
 test_ols  <- anti_join(ca_schools, train_ols, by = 'id') #think of it as left - right. keeps all of those entries
 ca_schools
 test_ols
 
 #train model 
-ols_model = train(score ~ ., data = train_ols, method = "lm", trControl = trainControl(method = "cv", number = 10) )
+ols_model = train(score ~ . - id, data = train_ols, method = "lm", trControl = trainControl(method = "cv", number = 10) )
+ols_model$finalModel
+summary(ols_model)
 
 
 # fkja = lm(score ~ . - district - grades - county - school, data= train_ols)
@@ -129,64 +155,59 @@ ols_model = train(score ~ ., data = train_ols, method = "lm", trControl = trainC
 ols_predictions = predict(ols_model,newdata = test_ols)
 
 #calculate out of sample Rsquared
-postResample(test_ols$score,ols_predictions )
+postResample(test_ols$score,ols_predictions ) #.78 R squared
+
 
 ```
+
+# First attempt at PCR-LASSO
+```{r}
+
+
+#Do PCA on entire data
+pca_ca_schools = prcomp(ca_schools %>% select(-c(district,school,grades,county,read,math,decile,percentile,score,id)),scale = TRUE) #remove all factors and variables too similar to score that you constructed
+summary(pca_ca_schools)
+pca_ca_schools$x
+pca_df = as_tibble(pca_ca_schools$x) #create a dataframe of the principal components
+
+dim(pca_df)
+pca_df_train = pca_df[1:210,]
+pca_df_test = pca_df_train %>% setdiff(pca_df_train)
+
+
+varY  = var(ca_schools$score)
+cvlassoPCR = cv.gamlr(x = pca_df, y = ca_schools$score, nfold = 10)
+
+MSE = cvlassoPCR$cvm[cvlassoPCR$seg.min] #Sum of Squared Errors / Residual Sum of Squares
+
+
+varY
+#out of sample R^2
+#1 - SSE/SSTO
+
+cvlassoPCR_Rsquared= 1 - (MSE)/varY
+cvlassoPCR_Rsquared
+
+
+ #what to use as test data?
+
+#note:
+#similar performance for OLS and LASSO when small number of variables
+#slight improvement in terms of R squared, but because of how overly complex dthi smodel is, the other standard OLS
+#is likely more useful in this case
+
+```
+
+
+#LASSO
 ```{r}
 #LASSO
 
 #create train and test data
-train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math)) 
+train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math,decile,percentile,id)) 
 train_lasso_matrix = model.matrix(score ~ ., data = train_lasso)
 
-test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math)) %>%  setdiff(train_lasso)
-
-
-
-#Split AFTER PCA, not before
-
-#Do PCA on entire data
-pca_ca_schools = prcomp(ca_schools %>% select(-c(district,school,grades,county,read,math)),scale = TRUE)
-pca_ca_schools$x
-pca_df = as_tibble(pca_ca_schools$x) #create a dataframe of it 
-
-
-pca_train = prcomp(train_lasso, scale = TRUE)
-pca_train_df = as_tibble(pca_train$x)
-
-#split pca data into train and test subsets
-train_pcr = as_tibble(pca_ca_schools$x) %>% sample_frac(.7)
-test_pcr = as_tibble(pca_ca_schools$x) %>% setdiff(train_pcr)
-
-
-
-#apply PCA 
-cvlassoPCR_predictions = predict(cvlassoPCR, newdata = test_pcr)
-postResample(test_pcr,cvlassoPCR_predictions)
-
-
-
-
-length(train_lasso$score)
-length(ca_schools$score)
-length(pca_df$PC1)
-
-
-
-
-#BACK TO MY ORGINAL WAY, build model using principal components
-PCR = cv.gamlr(x = pca_train_df, y = train_lasso$score, nfold = 10)
-summary(PCR)
-
-
-new_df = test_pcr
-length(test_)
-length(test_pcr$PC1)
-#make predictions using PCR model
-predictions = predict(PCR, newdata = test_pcr  )
-
-
-test_pcr
+test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math,decile,percentile,id)) %>%  setdiff(train_lasso)
 
 #using caret
 lasso_model <- train(score ~ ., data = train_lasso,
@@ -195,22 +216,80 @@ lasso_model <- train(score ~ ., data = train_lasso,
                      tuneGrid = expand.grid(alpha = 1,
                                           lambda = seq(0.001, 0.2, by = 0.005))) #lasso model cuz alpha = 1
 standard_lasso_predictions = predict(lasso_model, newdata = test_lasso)
-postResample(test_lasso$score, standard_lasso_predictions)
+plot(lasso_model)
+postResample(test_lasso$score, standard_lasso_predictions) #.82 
+```
+
+#PCR (no LASSO)
+```{r}
+library(caret)
+
+#train and test data
+train_samples = ca_schools$score %>% 
+  createDataPartition(p = .7,list = FALSE)
+train_pcr = ca_schools[train_samples,]
+test_pcr = ca_schools[-train_samples,]
+
+
+#drop district, school, county, grades, math, and read, decile, percentile
+train_pcr = train_pcr %>% 
+  select(-c(district,school,county,grades,read,math,decile,percentile))
+test_pcr = test_pcr %>% 
+  select(-c(district,school, grades, county, read, math, decile, percentile))
+
+
+#build model, how to get this to work?????????? LASSO PCR
+pcr = train(score ~ ., data= train_pcr, method = "pcr",
+            scale = TRUE, trControl = trainControl("cv", number = 10),
+            tuneLength = 10, 
+            tuneGrid = expand.grid(alpha = 1,
+                                          lambda = seq(0.001, 0.2, by = 0.005))) #doesnt want to let me do LASSO
+
+View(ca_schools)
+
+
+summary(pcr)
+
+#making predictions to calculate measurements of accuracy:
+
+pcr_predictions = pcr %>% predict(test_pcr)
+
+data.frame(
+  RMSE = caret::RMSE(pcr_predictions, test_pcr$score),
+  Rsquare = caret::R2(pcr_predictions, test_pcr$score)
+)
+plot(pcr)
+
 ```
 
 
+#LASSO
 ```{r}
-#LETS TRY PCR again
-
-#create train and test data
-train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math)) 
+ca_schools
+train_lasso = ca_schools %>% sample_frac(.70) %>% select(-c(district,school,grades,county,read,math,decile,percentile)) 
 train_lasso_matrix = model.matrix(score ~ ., data = train_lasso)
 
-test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math)) %>%  setdiff(train_lasso)
+test_lasso = ca_schools %>% select(-c(district,school,grades,county,read,math,decile,percentile)) %>%  setdiff(train_lasso)
 
+#build model
 
+lasso_model <- train(score ~ ., data = train_lasso,
+                     method = 'glmnet',
+                     trControl = trainControl(method = 'cv', number = 10),
+                     tuneGrid = expand.grid(alpha = 1,
+                                          lambda = seq(0.001, 0.2, by = 0.005)))
 
+lasso_predictions = lasso_model %>% predict(test_lasso)
 
+data.frame(
+  RMSE = caret::RMSE(lasso_predictions, test_lasso$score),
+  Rsquare = caret::R2(lasso_predictions, test_lasso$score)
+)
+
+plot(lasso_model)
+
+#value of lambda that results in smallest RMSE
+summary(lasso_model$finalModel$lambdaOpt) #optimal value of lambda is .196
 
 ```
 
@@ -233,8 +312,8 @@ test_knn_labels = test_knn %>% pull(percentile) %>% as.factor()
 
 
 #drop the true labels and assign to own objects
-train_knn = train_knn %>% select(-percentile)
-test_knn = test_knn %>% select(-percentile)
+train_knn = train_knn %>% select(-percentile,-id,-decile)
+test_knn = test_knn %>% select(-percentile,-id,-decile)
 
 
 knn_pred = knn(train = train_knn, test = test_knn,  cl = train_knn_labels, k=5)
@@ -245,9 +324,8 @@ sum(diag(table(knn_pred, test_knn_labels)))/sum(table(knn_pred, test_knn_labels)
 
 ```
 ```{r}
-#trying just two predictors
-
-subsetted_ca_schools = ca_schools %>% select(-c(district,school,grades,county,read,math,score)) %>% 
+#trying just two predictors to classify which decile rank the school is in
+subsetted_ca_schools = ca_schools %>% select(income, expenditure, percentile) %>% 
   mutate(id = row_number())
 #training data and training labels
 train_knn = subsetted_ca_schools %>% sample_frac(.70)
@@ -273,8 +351,54 @@ table(knn_pred, test_knn_labels)
 sum(diag(table(knn_pred, test_knn_labels)))/sum(table(knn_pred, test_knn_labels))
 
 
-
+#why doesn't classificaiton work well here?
 ```
+ Some improvement with fewer predictors but still much worse than assignment based on random chance
+accuracy of about .43
+
+
+
+```{r}
+
+#create model matrix for lasso and shit
+cart_data = ca_schools %>% 
+  select(-c(district,school,county,grades,read,math,decile,percentile,id))
+lasso_model_matrix = model.matrix(score ~ ., data = cart_data)
+
+nrow(lasso_model_matrix)
+nrow(cart_data$score)
+length(cart_data$score)
+
+#way to create train and test data sets
+# lin = cv.gamlr(x=lasso_model_matrix[train,], y=cart_data$score[train])
+
+MSE = list(LASSO=NULL, CART=NULL, RF=NULL)
+for(i in 1:10){
+  train = sample(1:nrow(cart_data), .7*(nrow(cart_data)))
+  
+  lin       = cv.gamlr(x=lasso_model_matrix[train,], y=cart_data$score[train])
+  yhat.lin  = drop(predict(lin, lasso_model_matrix[-train,], select="min"))
+  MSE$LASSO = c( MSE$LASSO, var(cart_data$score[-train] - yhat.lin))
+  
+  rt       = tree(cart_data[train,]$score ~ ., data=cart_data[train,])
+  yhat.rt  = predict(rt, newdata=cart_data[-train,])
+  MSE$CART = c( MSE$CART, var(cart_data$score[-train] - yhat.rt))
+  
+  rf      = ranger(cart_data[train,]$score ~ ., data=cart_data[train,],num.tree=200, min.node.size=25, write.forest=TRUE)
+  yhat.rf = predict(rf, data=cart_data[-train,])$predictions
+  MSE$RF  = c( MSE$RF, var(cart_data$score[-train] - yhat.rf) )
+  
+} 
+rf
+lapply(MSE,mean) #random forest appears to perform the best.. How come??
+?lapply
+boxplot(as.data.frame(MSE), xlab="model", ylab="MSE", main =  "Comparing Methods: LASSO vs CART vs Random Forest")
+```
+
+
+
+
+
 
 
 

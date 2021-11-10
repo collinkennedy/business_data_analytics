@@ -1,0 +1,185 @@
+---
+title: "hw4"
+author: "Collin"
+date: "5/15/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+
+```
+
+
+# Question 10
+
+## a)
+```{r}
+#pg 417 ISLR
+set.seed(10101)
+x_1 = matrix(rnorm(20*20,mean = 10,sd = 5),ncol = 20)
+x_2 = matrix(rnorm(20*20,mean = 20,sd = 5),ncol = 20)
+x_3 = matrix(rnorm(20*20,mean = 30,sd = 5),ncol = 20)
+
+data = data.frame(x = rbind(x_1,x_2,x_3))
+
+
+
+
+
+```
+
+## b)
+```{r}
+
+pca = prcomp(data, scale = TRUE)
+summary(pca)
+plot(pca$x[,1:2],col = 3:4)
+
+
+```
+
+
+## c)
+```{r}
+#k-means algorithm with k = 3
+kmeans = kmeans(x = data, centers = 3, nstart = 20)
+kmeans$cluster
+
+
+class = c(rep(2,20),rep(3,20),rep(1,20))
+table(kmeans$cluster,class)
+plot(data$x.1,data$x.2,col = kmeans$cluster)
+```
+The algorithm here at least *appears* to perform decently. The data in the lower, middle, and upper right hand side of the plot, which are presumably different, are differientiated by color, indicating that the algorithm picked up on differences between them.
+
+## d)
+```{r}
+#with k = 2
+kmeans2 = kmeans(x = data, centers = 2, nstart = 20)
+
+
+
+class = c(rep(1,20),rep(2,20),rep(3,20))
+table(kmeans2$cluster,class)
+plot(data$x.1,data$x.2,col = kmeans2$cluster)
+
+```
+Without knowing that this was simulated data, I could probably argue this is a promising result. The data is clearly split into a lower-left and upper-right region, and an argument could be made that the k-means clustering picked up on mean differences between the *two* groups. However, because this data was simulated, we know that there are actually 3 groups here, and that one of the groups has been absorbed/distributed amongst other two. This pretty much highlights the danger of k-means clustering, as it is highly dependent on the hyperparameter `k`.
+
+## e
+```{r}
+kmeans4 = kmeans(x = data, centers = 4, nstart = 20)
+kmeans4$cluster
+
+
+class = c(rep(2,20),rep(1,20),rep(3,20))
+table(kmeans4$cluster,class)
+plot(data$x.1,data$x.2,col = kmeans4$cluster)
+
+
+
+```
+Here we make a similar error but in the opposite direction of the one we made in the previous problem. Whereas in the previous problem we had two few groups, Here we group into 1 too many groups. The fact that it is "wrong" is perhaps a little more obvious though since there is significant overlap amongst the data in the lower-left region of the plot.
+
+## f)
+```{r}
+#k-means on PCs
+kmeans_pca = kmeans(x = pca$x[,1:2], centers = 3, nstart = 20)
+
+# kmeans_pca$cluster
+table(kmeans_pca$cluster,c(rep(3,20),rep(2,20),rep(1,20)))
+plot(pca$x[,1], pca$x[,2], col = kmeans_pca$cluster)
+
+
+
+
+```
+Having performed principal component analysis on the `data`, the correlation amongst the variables, which are now principal components, has been eliminated. The algorithm performs admirably here since the principal components are very different which is easy for the algorithm to discern.
+
+# 2: Repeating Analysis using Empirical Project Data
+
+## b repeated)
+```{r}
+library(AER)
+data("CASchools")
+
+
+#drop all non-numerical variables from dataset
+CASchools = CASchools %>% 
+  select(-c(district,school,county,grades))
+
+pca2 = prcomp(CASchools, scale = TRUE)
+summary(pca2)
+plot(pca2$x[,1:2],col = 3:4)
+
+
+```
+The first principal component explains about 45% of the total variation. It's not until the 4th Principal component is considered that about 91% of the proportion of variance is explained.
+
+
+repeat c)
+```{r}
+kmeans = kmeans(x = CASchools, centers = 3, nstart = 20)
+
+
+class = c(rep(1,420/3),rep(2,420/3),rep(3,420/3))
+table(kmeans$cluster,class)
+plot(CASchools$income,CASchools$read,col = kmeans$cluster)
+
+
+```
+Using my data from the empirical project, I perform kmeans clustering on the entire dataset (minus any non-numerical variables). Clearly, it is somewhat of a mess. This may be due to the fact we are trying to establish 3 groups in this data, and that may not be the actual case.
+repeat d)
+```{r}
+#with k = 2
+kmeans2 = kmeans(x = CASchools, centers = 2, nstart = 20)
+
+
+
+class = c(rep(1,210),rep(2,210))
+table(kmeans2$cluster,class)
+plot(CASchools$income,CASchools$read,col = kmeans2$cluster)
+
+
+```
+We see a similar thing here. There is lots of overlap in the data between the two groups,indicating there are no clear cut differences between groups (at least when k = 2).
+
+repeat e)
+```{r}
+kmeans4 = kmeans(x = CASchools, centers = 4, nstart = 20)
+
+
+
+class = c(rep(2,420/4),rep(1,420/4),rep(4,420/4),rep(3,420/4))
+table(kmeans4$cluster,class)
+plot(CASchools$income,CASchools$read,col = kmeans4$cluster)
+
+
+
+
+```
+Here we impose `k` = 4 groups on the data, and the result doesnt appear much better. This may simply be due to the fact that this data cannot be so easily distributed into 4 groups. There may be too many overlapping characteristics between observations.
+
+repeat f)
+```{r}
+#k-means on PCs
+kmeans_pca = kmeans(x = pca2$x[,1:2], centers = 3, nstart = 20)
+
+kmeans_pca$cluster
+length(kmeans_pca$cluster)
+# kmeans_pca$cluster
+table(kmeans_pca$cluster,c(rep(1,420/3),rep(3,420/3),rep(2,420/3)))
+plot(pca2$x[,1], pca2$x[,2], col = kmeans_pca$cluster)
+
+
+```
+
+kmeans clustering on the principal components appears to work much better than in the case where PCA was not conducted. Similarly too when we did this in the simulated data case, multicollinearity between predictors is eliminated during the dimension reduction process of PCA, as the principal components are no longer correlated. While they now clearly fit into three groups, from an interpretation standpoint, this really means nothing as principal components cannot be interpreted the same way that regular predictor variables can be interpreted, as the principal components are an amalgam of the various predictors in the original data set. 
+
+
+

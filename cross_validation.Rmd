@@ -1,0 +1,140 @@
+---
+title: "cross_validation"
+author: "Collin"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# loading required packages
+  
+# package to perform data manipulation
+# and visualization
+library(tidyverse)
+library(readr)
+library(caret) #contains cross-validation functions
+library(modelr) #contains rmse() function
+library(rsample) #useful functions ie initial_split(), training(), and testing() to split data for cross validation
+# installing package to
+# import desired dataset
+# loading the dataset
+data("marketing", package = "datarium")
+  
+# inspecting the dataset
+head(marketing)
+
+set.seed(125)
+#do using your own methodology
+#k = 5
+?slice_sample
+
+?crossv_kfold
+
+dim(marketing)
+#training data
+training_data = marketing 
+ 
+
+#this just assigns a fold number to each observation
+df_fold = marketing %>%
+  sample_frac(1) %>%
+  mutate(fold=rep(1:5, length.out=n())) %>%
+  ungroup 
+
+df_fold
+
+
+
+```
+
+
+```{r}
+#using rsample functions
+
+training_data = tibble()
+testing_data = tibble()
+# for(i in 1:5){
+#   marketing_split = initial_split(marketing)
+#   train_data = training(marketing_split)
+#   test_data = testing(marketing_split)
+#   training_data = bind_cols(train_data)
+#   testing_data = bind_cols(test_data)
+#   
+# }
+set.seed()
+marketing_split = initial_split(marketing)
+train_data = training(marketing_split)
+test_data = testing(marketing_split)
+training_data = bind_cols(train_data)
+testing_data = bind_cols(test_data)
+training_data
+
+```
+
+```{r}
+#using Takuya's method combined with above code:
+
+#assigns a fold number to each observation:
+df_fold = marketing %>%
+  sample_frac(1) %>%
+  mutate(fold=rep(1:5, length.out=n())) %>%
+  ungroup 
+?sample_frac
+K = 5
+OOS_error <- tibble(full=rep(NA,K), cut=rep(NA,K)) 
+df_fold
+for(k in 1:K){ 
+   #subtract the kth fold for the training data
+  train = df_fold %>% 
+    filter(df_fold$fold != k)
+
+  ## fit the two regressions where the kth fold is left out of training
+  rfull <- lm(sales ~ ., data = train)
+  summary(rfull)
+  # rcut  <- glm(FAIL~., data=SC[,cutvar], subset=train, family=binomial)
+  
+  ## get predictions: type=response so we have probabilities
+  predfull <- predict(rfull, newdata=df_fold %>% filter(fold==k))
+  # predcut  <- predict(rcut, newdata=SC[-train,], type="response")
+  
+  ## calculate and log R2
+  # OOS_error$full[k] <- R2(y=SC$FAIL[-train], pred=predfull, family="binomial")
+  # OOS_error$full[k] = rsquare(predfull, data = df_fold)
+  # OOS_error$cut[k] <- R2(y=SC$FAIL[-train], pred=predcut, family="binomial")
+  #use test data
+  OOS_error$cut[k] = rsquare(rfull, data = df_fold)
+}
+colMeans(OOS_error)
+
+
+
+
+```
+```{r}
+#using caret
+model = caret::train(sales~.,marketing, method = "lm",
+                     trControl = trainControl(method = "cv", number = 10))
+
+
+#the final model produced from cross-validation
+#note that cv is used for model evaluation, not model building. Even tho it may seem like you have k different models when doing k-fold
+#cv, keep in mind you're are really just trying to evaluate out of sample performance of the single model.
+model$finalModel
+
+#check
+# fit =  
+
+```
+
+
+
+```{r}
+web_browser = read_csv("web-browsers.csv")
+c(mean(web_browser$spend),sd(web_browser$spend),sqrt(var(web_browser$spend)/dim(web_browser)[1]))
+
+```
+

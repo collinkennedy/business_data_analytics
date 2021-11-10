@@ -2,7 +2,9 @@
 title: "hw2"
 author: "Collin"
 date: "4/20/2021"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -97,7 +99,7 @@ prediction_table
 sum(diag(prediction_table))/sum(prediction_table)
 
 ```
-The prediction accuracy is about 56\% overall, and it shows when the logistic regression is right and wrong. For down predictions, it is correct 54/102 \approx 52.9\% accurate, and 557/987 \approx 56.4\% accurate. Overall, this is not a very accurate model, as it hardly beats a prediction under pure chance (50/50).
+The prediction accuracy is about 56\% overall, and it shows when the logistic regression is right and wrong. For `Down` predictions, it is approximately $ 53\%$ accurate, and for `Up` predictions it is approximately $\approx 56\%$ accurate. Overall, this is not a very accurate model, as it hardly beats a prediction under pure chance (50/50).
 
 2d) 
 ```{r}

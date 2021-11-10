@@ -1,0 +1,284 @@
+---
+title: "airbnb_analysis"
+author: "Collin"
+date: "4/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+library(nsprcomp)
+library(predictrace)
+library(ggmap) #used to make heatmaps
+library(glmnet)
+library(stargazer)
+?glmnet
+#POSSIBLE QUESTIONS:
+#Can we classify 
+
+```
+
+```{r}
+airbnb_data = read_csv("Airbnb_NYC_2019 (1).csv")
+
+airbnb_data
+predict
+
+```
+
+
+
+```{r}
+#use predictedrace package
+#not sure what changed here
+airbnb_data = airbnb_data %>% na.omit() %>% 
+  mutate(pred_race = predict_race(host_name))
+
+airbnb_data = airbnb_data %>% 
+  mutate(pred_race_probability =
+           case_when( pred_race$likely_race == "white" ~ pred_race$probability_white,
+                      pred_race$likely_race == "asian" ~ pred_race$probability_asian,
+                      pred_race$likely_race == "black" ~ pred_race$probability_black,
+                      pred_race$likely_race == "hispanic" ~ pred_race$probability_hispanic,
+                      pred_race$likely_race == "american_indian" ~ pred_race$probability_american_indian,
+                      pred_race$likely_race == "other" ~ pred_race$probability_2races
+           )) %>% 
+  mutate(predicted_race =
+           case_when( pred_race$likely_race == "white" ~ "white",
+                      pred_race$likely_race == "asian" ~ "asian",
+                      pred_race$likely_race == "black" ~ "black",
+                      pred_race$likely_race == "hispanic" ~ "hispanic",
+                      pred_race$likely_race == "american_indian" ~ "american indian",
+                      pred_race$likely_race == "black, white" ~ "other"
+           )) %>% select(-pred_race)
+  
+
+
+airbnb_data
+
+#how many of each predicted race?
+airbnb_data %>% na.omit() %>% 
+  group_by(predicted_race) %>% 
+  summarize(number_each_race = n()) %>% 
+  arrange(desc(number_each_race))
+
+
+#do the proportions of race in the sample reflect census data? are certain races over or under represented in Airbnb data?
+# if so, do these differences reflect some sort of racial bias in homeownership?
+
+```
+
+```{r}
+#exploratory analysis- Price vs Neighbourhood
+
+ggplot(data = airbnb_data, aes(x=neighbourhood_group, y=price, fill = room_type )) + 
+  geom_bar(stat="identity", position=position_dodge()) +
+  ggtitle("Price  vs. Neighborhood")+
+  xlab("Neighborhood Group") + ylab("Price") + theme_minimal()
+
+
+#confirming the plot reaches the max price of each neighbourhood group
+airbnb_data %>% select(price, room_type, neighbourhood_group) %>% 
+  group_by(neighbourhood_group,room_type) %>% 
+  summarize(max_price = max(price)) %>% 
+  filter(neighbourhood_group == "Staten Island")
+```
+
+
+```{r}
+#exploratory data analysis - count of listing type by Borough (neighbourhood group)
+ggplot(data = airbnb_data, aes(x=neighbourhood_group, y=price, fill = room_type )) + 
+  geom_bar(stat="identity", position=position_dodge()) +
+  ggtitle("Price  vs. Neighborhood")+
+  xlab("Neighborhood Group") + ylab("Price") + theme_minimal()
+
+
+airbnb_data %>% 
+  group_by(neighbourhood_group) %>% 
+  count(room_type) %>% 
+  mutate(pct = n / sum(n)) %>% 
+  ggplot(aes(x = neighbourhood_group, pct, fill = room_type)) +
+  geom_col(position = 'dodge')+
+  scale_y_continuous(labels = scales::percent_format()) + ylim(0,1)+
+  ylab("Percentage") + xlab("Neighbourhood") + ggtitle("Count of Listing Type by Neighbourhood")
+ 
+```
+```{r}
+#average price by borough
+airbnb_data %>% 
+  group_by(neighbourhood_group) %>% 
+  summarize(avg_price = mean(price))
+
+
+
+```
+
+```{r}
+#Yannian's Heat Map:
+#Room Type on X Axis, Price Range on Y axis, count is our "third dimension"
+#heat map tells us that private rooms in the $50-$100 per night range is the overwhelming majority of airbnb rentals (at least in this dataset.)
+#Entire homes, which seem to be the second most common, are unsurprisingly higher price range of about $100-200 per night.
+
+airbnb = read.table("Airbnb_NYC_2019.csv", header = TRUE, sep = ",", quote = "\"", comment.char = "")
+airbnb$last_review = as.Date(airbnb$last_review)
+airbnb$neighbourhood_group = as.factor(airbnb$neighbourhood_group)
+
+#creating a map
+#The key is linked to my school account and is free of use for 90 days.
+register_google(key = "AIzaSyAIOXS__eabiuvNQxuJDZYauMmecXmJeQQ")
+p <- ggmap(get_googlemap(center = c(lon = -73.96353, lat = 40.7895),
+                         zoom = 10, scale = 4,
+                         maptype ='terrain',
+                         color = 'color'))
+#plot each listing on map
+p + geom_point(aes(x = longitude, y = latitude, colour = room_type), data = airbnb, size = 0.5)
+
+#only plotting neighborhood_group Manhattan
+Manhattan = airbnb %>% filter(neighbourhood_group == "Manhattan")
+pm <- ggmap(get_googlemap(center = c(lon = mean(Manhattan$longitude), lat = mean(Manhattan$latitude)),
+                          zoom = 11, scale = 4,
+                          maptype ='terrain',
+                          color = 'color'))
+pm + geom_point(aes(x = longitude, y = latitude, colour = room_type), data = Manhattan, size = 0.5) +
+  xlab('Longitude') +
+  ylab('Latitude')
+
+#heat map contingency table
+
+#grouping data
+price_neighbour = airbnb %>%
+  group_by(neighbourhood_group, price_range=cut(price, breaks= seq(0, 500, by = 50), right=F)) %>%
+  summarise(count = length(neighbourhood_group), price = mean(price)) %>%
+  arrange(as.numeric(price_range))
+
+price_roomType = airbnb %>%
+  group_by(room_type, price_range=cut(price, breaks= seq(0, 500, by = 50), right=F)) %>%
+  summarise(count = length(room_type), price = mean(price)) %>%
+  arrange(as.numeric(price_range))
+#changeing NA to [500,)
+price_neighbour$price_range = as.character(price_neighbour$price_range)
+price_neighbour$price_range[is.na(price_neighbour$price_range)] = "[500,)"
+price_neighbour$price_range = as.factor(price_neighbour$price_range)
+#making plots
+ggplot(price_neighbour, aes(x = neighbourhood_group, y = price_range)) +
+  geom_tile(aes(fill = count)) + 
+  geom_text(aes(label = count)) +
+  scale_fill_gradient2(low = 'white', high = 'dark red') +
+  xlab("Neighbourhood Group") +
+  ylab("Price Range")
+
+ggplot(price_roomType, aes(x = room_type, y = price_range)) +
+  geom_tile(aes(fill = count)) + 
+  scale_fill_gradient2(low = 'white', high = 'dark red')
+
+
+
+
+```
+
+
+```{r}
+#OLS
+train <- airbnb_data %>% sample_frac(.8)
+test <- airbnb_data %>% setdiff(train)
+olsmod <- lm(data = train, price~as.factor(neighbourhood_group) + as.factor(predicted_race))
+summary(olsmod)
+stargazer(olsmod, type = "text")
+pred <- predict(olsmod, data = test)
+compare <- cbind(actual = test$price, pred)
+
+```
+
+```{r}
+#Ridge Regression (Jacob's Version)
+
+airbnb_data <- airbnb_data %>% na.omit()
+train <- airbnb_data %>% sample_frac(.8)
+test <- airbnb_data %>% setdiff(train)
+xtrain <- train %>% data.matrix()
+xtest <- test %>% data.matrix()
+
+ytrain <- train %>% select(price) %>% unlist() %>% as.numeric()
+ytest <- test %>% select(price) %>% unlist() %>% as.numeric()
+
+grid <- 10^seq(10,-2,length = 100)
+ridgemod <- glmnet(xtrain,ytrain, alpha = 0, lambda = grid)
+plot(ridgemod)
+ridge_cv <- cv.glmnet(xtrain, ytrain, alpha = 0)
+best_lam <- ridge_cv$lambda.min
+best_model <- ridge_cv$glmnet.fit
+bestridge <- glmnet(xtrain, ytrain, alpha = 0, lambda = best_lam)
+
+pred <- predict(bestridge, s = best_lam, newx = xtest)
+compare <- cbind (actual=ytest, pred)
+mean (apply(compare, 1, min)/apply(compare, 1, max)) #measurement of accuracy
+
+SSE = sum((pred - ytest)^2)
+SST = sum((ytest - mean(ytest))^2)
+RSquared = 1 - (SSE/SST)
+RSquared #OUT OF SAMPLE R2
+
+
+```
+
+```{r}
+#Yannian's Ridge
+library(glmnet)
+set.seed(123)
+sample_size = floor(0.8 * nrow(airbnb_data))
+
+train_ind = sample(seq_len(nrow(airbnb_data)), size = sample_size)
+
+train = airbnb_data[train_ind, ]
+test = airbnb_data[-train_ind, ]
+
+xtrain = train %>% select(-id,-name,-host_id,-host_name,-last_review,-price,-predicted_race,-pred_race_probability) %>% data.matrix()
+ytrain = train$price
+
+xtest = test %>% select(-id,-name,-host_id,-host_name,-last_review,-price,-predicted_race,-pred_race_probability) %>% data.matrix()
+ytest = test$price
+
+lambdas <- 10^seq(2, -3, by = -.1)
+
+ridge_model = glmnet(xtrain, ytrain, nlambda = 25, family = 'gaussian', lambda = lambdas)
+
+ridge_cv = cv.glmnet(xtrain, ytrain, alpha = 0, lambda = lambdas)
+best_lam = ridge_cv$lambda.min
+
+pred = predict(ridge_model, s = best_lam, newx = xtest) # predict on test data
+compare <- cbind (actual=ytest, pred)
+mean (apply(compare, 1, min)/apply(compare, 1, max))
+
+#SSE
+SSE = sum((pred - ytest)^2)
+SST = sum((ytest - mean(ytest))^2)
+RSquared = 1 - (SSE/SST)
+RSquared
+```
+
+```{r}
+#Lasso
+lambdas <- 10^seq(2, -3, by = -.1)
+lasso_reg = cv.glmnet(xtrain, ytrain, alpha = 1, lambda = lambdas, standardize = TRUE, nfolds = 5)
+
+best_lam = lasso_reg$lambda.min
+
+lasso_model = glmnet(xtrain, ytrain, alpha = 1, lambda = best_lam, standardize = TRUE)
+
+pred = predict(lasso_model, s = best_lam, newx = xtest)
+compare <- cbind (actual=ytest, pred)
+mean (apply(compare, 1, min)/apply(compare, 1, max))
+
+SSE = sum((pred - ytest)^2)
+SST = sum((ytest - mean(ytest))^2)
+RSquared = 1 - (SSE/SST)
+RSquared
+```
+
+
+
+
+
+

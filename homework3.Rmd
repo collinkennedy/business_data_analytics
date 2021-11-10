@@ -1,0 +1,407 @@
+---
+title: "homework3"
+author: "Collin"
+date: "4/28/2021"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggthemes)
+library(leaps)
+library(caret)
+```
+
+
+# Question 8
+
+*a)* *Use the rnorm() function to generate a predictorXof lengthn= 100, as well as a noise vector"of lengthn=100.*
+```{r}
+predictorX = rnorm(100, 0,10)
+noise = rnorm(100, 0, 20)
+
+
+
+```
+
+
+*b)* *generate a response vectorY of length n= 100 according to the model*
+\[
+Y = \beta_{0} + \beta_{1}X_{1} + \beta_{2}X_{2}^2 + \beta_{3}X_{3}^3
+\]
+```{r}
+beta0 = 3
+beta1 = 2
+beta2 = -.5
+beta3 = .05
+
+Y = beta0 + beta1*predictorX + beta2*predictorX + beta3*predictorX + noise
+
+df = data.frame(Y = Y, X= predictorX)
+```
+
+
+
+*c)* *Use theregsubsets()function to perform best subset selection in order to choose the best model containing the predictorsX,X2,...,X10. What is the best model obtained according to Cp,BIC,andadjustedR2?Showsomeplotstoprovideevidencefor your answer, and report the coefficients of the best model ob-tained. Note you will need to use the data.frame()function tocreate a single data set containing bothXandY.*
+```{r}
+
+
+
+fit = regsubsets(Y ~ poly(X, 10), data = df, nvmax = 10)
+
+fit_summary = summary(fit)
+fit_summary$cp
+fit_summary$adjr2
+fit_summary$bic
+which.min(fit_summary$cp)
+
+
+```
+Based on Mallow's CP, the best model is model #4.
+The coefficients are reported as follows:
+
+```{r}
+coef(fit, id = 4)
+
+
+#found these plots online and thought they looked pretty cool so I included them
+# tibble(Cp = fit_summary$cp,
+#            BIC = fit_summary$bic,
+#            AdjR2 = fit_summary$adjr2) %>%
+#     mutate(id = row_number()) %>%
+#     gather(value_type, value, -id) %>%
+#     ggplot(aes(id, value, col = value_type)) +
+#     geom_line() + geom_point() + ylab('') + xlab('Number of Variables Used') +
+#     facet_wrap(~ value_type, scales = 'free') +
+#     theme_minimal() + scale_x_continuous(breaks = 1:10)
+
+
+```
+
+
+*d)* *Repeat (c), using forward stepwise selection and also using back-wards stepwise selection. How does your answer compare to theresults in (c)?*
+```{r}
+
+#forward
+forward_model = regsubsets(Y ~ poly(X, 10), data = df,
+                           method = "forward")
+forward_summary = summary(forward_model)
+which.min(forward_summary$cp)
+which.min(forward_summary$bic)
+which.max(forward_summary$adjr2)
+coef(forward_model, id = 4)
+
+#best backward
+backward_model = regsubsets(Y ~ poly(X, 10), data = df,
+                           method = "backward")
+backward_summary = summary(backward_model)
+which.min(backward_summary$cp)
+which.min(backward_summary$bic)
+which.max(backward_summary$adjr2)
+coef(forward_model, id = 4)
+
+
+```
+Again using Mallow's CP as my selection criteria, it appears that forward, backward, and best subset selection methods are all in agreement; that is, model #4 is found to be the "best" model in each scenario.
+
+
+```{r include=FALSE}
+
+?postResample
+model_back <- train(Y ~ poly(X, 10), data = df, 
+                    method = 'glmStepAIC', direction = 'backward', 
+                    trace = 0,
+               trControl = trainControl(method = 'none', verboseIter = FALSE))
+
+postResample(predict(model_back, df), df$Y)
+
+summary(model_back$finalModel)
+
+x_poly <- poly(df$X, 10)
+
+colnames(x_poly) <- paste0('poly', 1:10)
+model_forw <- train(y = Y, x = x_poly,
+                    method = 'glmStepAIC', direction = 'forward',
+                    trace = 0,
+               trControl = trainControl(method = 'none', verboseIter = FALSE))
+
+postResample(predict(model_forw, data.frame(x_poly)), df$Y)
+summary(model_forw$finalModel)
+
+```
+
+
+
+*e)* *Now fit a lasso model to the simulated data, again usingX,X2,...,X10as predictors. Use cross-validation to select the optimalvalue of lambda. Create plots of the cross-validation error as a functionofλ.Report theresultingcoefficient estimates, and discuss theresults obtained.*
+
+```{r}
+library(gamlr)
+#estimate LASSO
+model_matrix = model.matrix(Y ~ poly(X,10), data = df)
+
+lasso = cv.gamlr(model_matrix, Y)
+summary(lasso)
+
+
+#SElection criteria:
+#CV-Min: chooses smalleset out of sample SSE 
+lambda_min = lasso$seg.min
+lasso$gamlr$lambda[lambda_min] #lambda that minimizes SSE
+
+#1standard error away rule
+lambda_1se = lasso$seg.1se
+lasso$gamlr$lambda[lambda_1se]
+
+#Aic
+
+#Bic
+
+#Path plot
+plot(lasso$gamlr)
+
+plot(lasso)
+
+coef(lasso, select = "min")
+
+```
+Using cross-validation, I find that the 1st, 2nd, and 6th terms are included in the optimal model, in addition to the intercept.
+
+
+
+```{r include=FALSE}
+#using caret
+lasso_model <- train(Y ~ poly(X, 10), data = df,
+                     method = 'glmnet',
+                     trControl = trainControl(method = 'cv', number = 10),
+                     tuneGrid = expand.grid(alpha = 1,
+                                          lambda = seq(0.001, 0.2, by = 0.005)))
+plot(lasso_model)
+?postResample
+coef(lasso_model$finalModel)
+postResample(predict(lasso_model, df), df$Y) #calculates RMSE, RSquared, MAE, using predictions from the model and the actual data
+?glmnet
+```
+
+
+
+
+*f)* *now generate a response vectorY according to the model*
+```{r}
+newY <- 3 + 8*predictorX^7 + noise
+
+new_df = data_frame(Y = newY, X = predictorX)
+fit <- regsubsets(Y ~ poly(X, 10), data = new_df, nvmax = 10)
+
+fit_summary <- summary(fit)
+
+
+# tibble(Cp = fit_summary$cp,
+#            BIC = fit_summary$bic,
+#            R2 = fit_summary$adjr2) %>%
+#     mutate(id = row_number()) %>%
+#     gather(value_type, value, -id) %>%
+#     ggplot(aes(id, value, col = value_type)) +
+#     geom_line() + geom_point() + ylab('') + xlab('Number of Variables Used') +
+#     facet_wrap(~ value_type, scales = 'free') +
+#     theme_minimal() + scale_x_continuous(breaks = 1:10)
+```
+
+
+
+#2
+
+## a)
+```{r}
+library(ISLR)
+data = College
+dim(data)
+
+n = nrow(data)
+K = 5
+foldid = rep(1:K, each = ceiling(n/K))[sample(1:n)]
+?rep
+
+train = data[which(foldid != 1),]
+test = data[-which(foldid !=1),]
+
+
+
+```
+
+
+
+##b)
+```{r}
+
+ols = lm(Apps ~ ., data = train)
+#predict
+ols_predictions = predict(ols, test)
+
+#calcualte out of sample SSE
+ols_oos = mean( (test$Apps - ols_predictions )^2 )
+
+
+#use the postResmaple function and see if you can get it
+postResample(test$Apps,ols_predictions)
+
+
+
+```
+
+
+##c)
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#Francis im so sorry I couldn't figure out why it continues to print the entire model matrix. it doesn't make any sense
+library(glmnet)
+#estimate ridge regression on training data
+
+X <- model.matrix(Apps~ ., data = train)
+```
+
+```{r}
+y = train$Apps
+
+grid = 10^seq(4,-2,length = 100)
+
+ridge = cv.glmnet(X,y, lambda = grid)
+
+#obtain predictions and find out of sample deviance
+xtest = model.matrix(Apps ~ ., data = test)
+ridge_pred = predict(ridge, newx = xtest, select = ridge$lambda.min)
+
+#calculate oos 
+ridge_oos = mean( (test$Apps - ridge_pred)^2)
+ridge_oos
+
+
+```
+
+
+
+##d)
+```{r}
+library(gamlr)
+library(tidyverse)
+#estimate the LASSO model on the training data
+X - model.matrix(Apps ~ ., data = train)
+y = train$Apps
+
+lasso = cv.gamlr(X,y, nlambda = 1000, lambda.start = Inf, lambda.min.ratio = .001)
+
+#obtain predictions
+xtest = model.matrix(Apps ~ ., data = test)
+lasso_pred = predict(lasso, newdata = xtest, select = "min")
+
+lasso_oos = mean( (test$Apps - lasso_pred)^2)
+
+
+RSS = c(ols_oos,ridge_oos,lasso_oos)
+Model = c("OLS", "Ridge", "Lasso")
+out = rbind(Model, round(RSS,2))
+out
+
+
+```
+Here we see that our Lasso model results in the lowest sum of squared errors.
+
+#3
+#a)
+```{r}
+set.seed(10101)
+#set p = 20, n = 1000
+p = 20
+n = 1000
+
+X = matrix(rnorm(n*p),n,p)
+#generate beta and outcome
+
+B = rnorm(p)
+B[3] = 0
+B[9] = 0
+B[4] = 0
+
+e = rnorm(n)
+y = X %*%B + e
+
+#df
+data = data.frame(y,X)
+
+
+```
+
+
+
+
+
+```{r}
+#training data index
+test_sample = sample(seq(1000),100, replace = FALSE)
+sample(seq(1000),100,replace = FALSE)
+test = data[test_sample,]
+train = data[-test_sample,]
+
+
+
+
+
+```
+
+
+#c)
+```{r}
+bestsubset = regsubsets(y~.,data = train, nvmax = 20)
+
+#graph
+matrix = model.matrix(y ~ .,data = train)
+
+bestsubset_is = rep(NA,p)
+for(i in 1:20){
+    coefi = coef(bestsubset,id = i)
+    pred = matrix[,names(coefi)]%*%coefi
+    bestsubset_is[i] = mean((train$y - pred)^2)
+}
+plot(bestsubset_is, ylab = "Training MSE", pch = 20, type = "b")
+
+```
+The important thing to note here that the training MSE *always* decreases with the addition of new predictors.
+
+
+
+
+```{r}
+matrix = model.matrix(y ~ .,data = test)
+
+bestsubset_oos = rep(NA,p)
+for(i in 1:20){
+    coefi = coef(bestsubset,id = i)
+    pred = matrix[,names(coefi)]%*%coefi
+    bestsubset_oos[i] = mean((test$y - pred)^2)
+}
+plot(bestsubset_oos, ylab = "testing MSE", pch = 20, type = "b")
+
+
+```
+Now note that each additional predictor does not always result in a reduction of *testing* MSE. This is an incredibly important distinction.
+
+#e)
+```{r}
+#in sample MSE
+which.min(bestsubset_is)
+
+#OOS
+which.min(bestsubset_oos)
+
+
+```
+The model takes on its lowest MSE value with 15 predictors (compared to the training model's lowest MSE value which unsurprisingly comes with the maximum number of predictors we tried).
+
+
+
+
+
+
+
